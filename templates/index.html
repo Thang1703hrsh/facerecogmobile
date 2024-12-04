@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Recognition</title>
+    <style>
+        body {
+            text-align: center;
+            font-family: Arial, sans-serif;
+        }
+        #video {
+            width: 80%;
+            height: auto;
+            margin: 20px auto;
+        }
+        .button {
+            margin: 10px;
+            padding: 10px 20px;
+            font-size: 18px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Face Recognition App</h1>
+
+    <div>
+        <button class="button" id="start">Start Recognition</button>
+        <button class="button" id="stop">Stop Recognition</button>
+    </div>
+
+    <img id="video" src="{{ url_for('video_feed') }}" alt="Video Feed">
+    
+    <script>
+        document.getElementById("start").onclick = function() {
+            fetch('/start_recognition', {
+                method: 'POST',
+            }).then(response => response.json())
+              .then(data => alert(data.status));
+        };
+
+        document.getElementById("stop").onclick = function() {
+            fetch('/stop_recognition', {
+                method: 'POST',
+            }).then(response => response.json())
+              .then(data => alert(data.status));
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+tensorflow
+keras
+scikit-learn
+opencv-python-headless
+h5py
+matplotlib
+Pillow
+requests
+psutil
+imageio
+streamlit-webrtc
+cv
+flask
