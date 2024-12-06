@@ -1,33 +1,40 @@
-from flask import Flask, render_template, Response, request, jsonify
+import streamlit as st
 import tensorflow as tf
 import pickle
-import imutils
-import cv2
 import numpy as np
-import time
+import cv2
 from src import facenet
 from src.align import detect_face
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
+import av 
 
-# Initialize Flask app
-app = Flask(__name__)
+# Streamlit page configuration
+st.set_page_config(page_title="Face Recognition App", layout="wide")
+st.title("Welcome to facial recognition")
 
-# Common Settings for both Video, Webcam, and Images
+# Sidebar Settings
+st.sidebar.title("Settings")
+TOLERANCE = st.sidebar.slider("Recognition Tolerance", 0.0, 1.0, 0.5, 0.01)
+st.sidebar.info("Lower tolerance is stricter, higher tolerance is looser for face recognition.")
+
+# Common Settings
 MINSIZE = 20
 THRESHOLD = [0.6, 0.7, 0.7]
 FACTOR = 0.709
 INPUT_IMAGE_SIZE = 160
-CLASSIFIER_PATH = 'Models/facemodel.pkl'
-FACENET_MODEL_PATH = 'Models/20180402-114759.pb'
+CLASSIFIER_PATH = 'facemodel.pkl'
+FACENET_MODEL_PATH = '20180402-114759.pb'
 
-# Load the custom classifier
+# Load Classifier Model
 with open(CLASSIFIER_PATH, 'rb') as file:
     model, class_names = pickle.load(file)
 
-# Load feature extraction model
+# Load Feature Extraction Model only once
+st.write("Loading FaceNet Model...")
 facenet.load_model(FACENET_MODEL_PATH)
 
-# Initialize TensorFlow session and GPU settings
-tf.compat.v1.Session()
+# Initialize TensorFlow session and GPU settings only once
+tf.Graph().as_default()
 gpu_options = tf.compat.v1.GPUOptions(per_process_gpu_memory_fraction=0.6)
 sess = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(gpu_options=gpu_options, log_device_placement=False))
 
@@ -38,74 +45,69 @@ phase_train_placeholder = tf.compat.v1.get_default_graph().get_tensor_by_name("p
 embedding_size = embeddings.get_shape()[1]
 pnet, rnet, onet = detect_face.create_mtcnn(sess, "src/align")
 
-# Video capture object
-cap = cv2.VideoCapture(0)
-
-def gen_frames():
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        # Flip and resize the frame
-        frame = imutils.resize(frame, width=1200, height=600)
-        frame = cv2.flip(frame, 1)
-
-        # Detect faces
-        bounding_boxes, _ = detect_face.detect_face(frame, MINSIZE, pnet, rnet, onet, THRESHOLD, FACTOR)
+# Callback for processing webcam frames
+class VideoProcessor:
+    def recv(self, frame):
+        # Convert the stream's image to a numpy array (OpenCV format)
+        img = frame.to_ndarray(format="bgr24")
         
+        # Detect faces
+        bounding_boxes, _ = detect_face.detect_face(img, MINSIZE, pnet, rnet, onet, THRESHOLD, FACTOR)
+
         faces_found = bounding_boxes.shape[0]
         if faces_found > 0:
             for det in bounding_boxes:
                 bb = det.astype(int)
-                
-                # Crop, scale, and predict
-                cropped = frame[bb[1]:bb[3], bb[0]:bb[2]]
+
+                # Crop and scale the detected face
+                cropped = img[bb[1]:bb[3], bb[0]:bb[2]]
                 scaled = cv2.resize(cropped, (INPUT_IMAGE_SIZE, INPUT_IMAGE_SIZE))
                 scaled = facenet.prewhiten(scaled).reshape(-1, INPUT_IMAGE_SIZE, INPUT_IMAGE_SIZE, 3)
+
+                # Make predictions
                 feed_dict = {images_placeholder: scaled, phase_train_placeholder: False}
                 emb_array = sess.run(embeddings, feed_dict=feed_dict)
                 predictions = model.predict_proba(emb_array)
                 best_class_idx = np.argmax(predictions)
                 best_prob = predictions[0, best_class_idx]
-                name = class_names[best_class_idx] if best_prob > 0.5 else "Unknown"
+                name = class_names[best_class_idx] if best_prob > TOLERANCE else "Unknown"
 
                 # Draw bounding box and label
-                cv2.rectangle(frame, (bb[0], bb[1]), (bb[2], bb[3]), (0, 255, 0), 2)
-                cv2.putText(frame, f"{name} ({best_prob:.2f})", (bb[0], bb[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+                cv2.rectangle(img, (bb[0], bb[1]), (bb[2], bb[3]), (0, 255, 0), 2)
+                cv2.putText(img, f"{name} ({best_prob:.2f})", (bb[0], bb[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
 
-        # Encode frame as JPEG
-        ret, buffer = cv2.imencode('.jpg', frame)
-        frame = buffer.tobytes()
+        # Return the processed frame
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
+        st.image(processed_image, caption='Detected Video', channels="BGR", use_column_width=True)
 
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
+rtc_configuration={  # Add this config
+        "iceServers": [
+      {
+        "urls": "stun:stun.relay.metered.ca:80",
+      },
+      {
+        "urls": "turn:global.relay.metered.ca:80",
+        "username": "bbfcabc563f99fa725cc4668",
+        "credential": "w2khlKKUp+qjdsS0",
+      },
+      {
+        "urls": "turn:global.relay.metered.ca:80?transport=tcp",
+        "username": "bbfcabc563f99fa725cc4668",
+        "credential": "w2khlKKUp+qjdsS0",
+      },
+      {
+        "urls": "turn:global.relay.metered.ca:443",
+        "username": "bbfcabc563f99fa725cc4668",
+        "credential": "w2khlKKUp+qjdsS0",
+      },
+      {
+        "urls": "turns:global.relay.metered.ca:443?transport=tcp",
+        "username": "bbfcabc563f99fa725cc4668",
+        "credential": "w2khlKKUp+qjdsS0",
+      },
+  ],
+}
 
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-@app.route('/video_feed')
-def video_feed():
-    return Response(gen_frames(),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
-
-@app.route('/start_recognition', methods=['POST'])
-def start_recognition():
-    # Start recognition (turn on webcam)
-    global cap
-    if not cap.isOpened():
-        cap = cv2.VideoCapture(0)
-    return jsonify({"status": "Recognition started"})
-
-@app.route('/stop_recognition', methods=['POST'])
-def stop_recognition():
-    # Stop recognition (release webcam)
-    global cap
-    if cap.isOpened():
-        cap.release()
-        cv2.destroyAllWindows()
-    return jsonify({"status": "Recognition stopped"})
-
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+# Set up the WebRTC streamer for the video feed
+webrtc_streamer(key="face-recognition", mode=WebRtcMode.SENDRECV, video_processor_factory=VideoProcessor, 
+                rtc_configuration= rtc_configuration)

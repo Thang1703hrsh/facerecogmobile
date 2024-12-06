@@ -23,7 +23,7 @@ add_page_title()
 
 show_pages(
     [
-        Page("Homepage.py", "Home", "🏠"),
+        Page("Homepage.py", "Face Recognition App", "🏠"),
         Page("pages/Updating.py", "Updating", "🔄"),
         Page("pages/Database.py", "Database", "📊"),
     ]
@@ -87,8 +87,6 @@ if start_recognition:
 
         frame = imutils.resize(frame, width=1200, height=600)
         frame = cv2.flip(frame, 1)
-
-        start_time = time.time()
 
         # Detect faces
         bounding_boxes, _ = align.detect_face.detect_face(frame, MINSIZE, pnet, rnet, onet, THRESHOLD, FACTOR)
